@@ -52,7 +52,7 @@ RPLidar frame must be broadcasted according to picture shown in rplidar-frame.pn
 
 # How lidar works(roughly)
 
-![](Lidar_locationing.png)
+![](lidar_locationing.jpg)
 1. Ros get the data from lidar and encoder, merge(black magic) the position data.
 2. Return the real position to encoder.
 3. Send the position data to mainboard like how we used encoder before.
