@@ -36,6 +36,7 @@
 #include "rplidar.h"
 #include "sensor_msgs/LaserScan.h"
 #include "std_srvs/Empty.h"
+#include <limits>
 
 #ifndef _countof
 #define _countof(_Array) (int)(sizeof(_Array) / sizeof(_Array[0]))
@@ -48,9 +49,11 @@ using namespace rp::standalone::rplidar;
 RPlidarDriver *drv = NULL;
 
 void publish_scan(ros::Publisher *pub,
-                  rplidar_response_measurement_node_t *nodes, size_t node_count,
-                  ros::Time start, double scan_time, bool inverted,
-                  float angle_min, float angle_max, std::string frame_id) {
+                  rplidar_response_measurement_node_hq_t *nodes,
+                  size_t node_count, ros::Time start, double scan_time,
+                  bool inverted, float angle_min, float angle_max,
+                  float max_distance, bool cut_angle, size_t left_degree,
+                  size_t right_degree, std::string frame_id) {
   static int scan_count = 0;
   sensor_msgs::LaserScan scan_msg;
 
@@ -72,63 +75,60 @@ void publish_scan(ros::Publisher *pub,
   scan_msg.scan_time = scan_time;
   scan_msg.time_increment = scan_time / (double)(node_count - 1);
   scan_msg.range_min = 0.15;
-  scan_msg.range_max = 8.0;
+  scan_msg.range_max = max_distance; // 8.0;
 
   scan_msg.intensities.resize(node_count);
   scan_msg.ranges.resize(node_count);
-  bool reverse_data =
-      (!inverted && reversed) ||
-      (inverted && !reversed); //修改后的代码reverse_data就没有用处了。
+  bool reverse_data = (!inverted && reversed) || (inverted && !reversed);
+  if (!reverse_data) {
+    for (size_t i = 0; i < node_count; i++) {
+      float read_value = (float)nodes[i].dist_mm_q2 / 4.0f / 1000;
+      if (read_value == 0.0) {
+        scan_msg.ranges[i] = std::numeric_limits<float>::infinity();
+      } else if (cut_angle) {
+        if ((left_degree < right_degree && i > left_degree &&
+             i < right_degree) ||
+            (left_degree > right_degree &&
+             (i < left_degree || i > right_degree))) {
+          scan_msg.ranges[i] = read_value;
+        } else if (left_degree == right_degree) {
+          scan_msg.ranges[i] = read_value;
+        } else {
+          scan_msg.ranges[i] = std::numeric_limits<float>::infinity();
+        }
+      } else {
+        scan_msg.ranges[i] = read_value;
+      }
 
-  /* 将rplidar放到hokuyo的位置，角度信息见上面的图如下
-                0度/前
-    270度/左   rplidar的方向  90度/右
-               180度/后
-
-    kobuki接收到 LaserScan scan_msg.ranges数据对应的角度信息
-                180度/前
-    270度/左   kobuki的方向  90度/右
-                0度/后
-
-  要把 0～90度对应的node数据映射到 180～90度的scan_msg.ranges中
-  要把 90～180度对应的node数据映射到 90～0度的scan_msg.ranges中
-  要把 180～270度对应的node数据映射到 359～270度的scan_msg.ranges中
-  要把 270～359度对应的node数据映射到 270～180度的scan_msg.ranges中
-  */
-
-  const size_t degree_90 = 90;      //固定值，算法需要
-  const size_t degree_270 = 270;    //固定值，算法需要
-  const size_t left_degrees = 225;  // 裁剪的范围 保留数据225～359.
-  const size_t right_degrees = 135; // 裁剪的范围 保留数据0～135.
-  //先全部置inf，注意：如果初始化是0,则表示范围内无障碍，故不能置0。inf表示无数据
-  for (size_t i = 0; i < node_count; i++) {
-    scan_msg.ranges[i] = std::numeric_limits<float>::infinity();
-  }
-
-  //将数据分别对应设置进去
-  for (size_t i = 0; i < node_count; i++) {
-    float read_value = (float)nodes[i].distance_q2 / 4.0f / 1000;
-    if (i < right_degrees) {
-      if (read_value == 0.0)
-        scan_msg.ranges[2 * degree_90 - i] =
+      scan_msg.intensities[i] = (float)(nodes[i].quality >> 2);
+    }
+  } else {
+    for (size_t i = 0; i < node_count; i++) {
+      float read_value = (float)nodes[i].dist_mm_q2 / 4.0f / 1000;
+      if (read_value == 0.0) {
+        scan_msg.ranges[node_count - 1 - i] =
             std::numeric_limits<float>::infinity();
-      else
-        scan_msg.ranges[2 * degree_90 - i] = read_value;
-      scan_msg.intensities[2 * degree_90 - i] =
-          (float)(nodes[i].sync_quality >> 2);
-    } else if (i > left_degrees) {
-      if (read_value == 0.0)
-        scan_msg.ranges[2 * degree_270 - i] =
-            std::numeric_limits<float>::infinity();
-      else
-        scan_msg.ranges[2 * degree_270 - i] = read_value;
-      scan_msg.intensities[2 * degree_270 - i] =
-          (float)(nodes[i].sync_quality >> 2);
-    } else {
-      // do nothing;
+      } else if (cut_angle) {
+        if ((left_degree < right_degree && node_count - 1 - i > left_degree &&
+             node_count - 1 - i < right_degree) ||
+            (left_degree > right_degree &&
+             (node_count - 1 - i < left_degree ||
+              node_count - 1 - i > right_degree))) {
+          scan_msg.ranges[node_count - 1 - i] = read_value;
+        } else if (left_degree == right_degree) {
+          scan_msg.ranges[node_count - 1 - i] = read_value;
+        } else {
+          scan_msg.ranges[node_count - 1 - i] =
+              std::numeric_limits<float>::infinity();
+        }
+      } else {
+        scan_msg.ranges[node_count - 1 - i] = read_value;
+      }
+
+      scan_msg.intensities[node_count - 1 - i] = (float)(nodes[i].quality >> 2);
     }
   }
-  //发布出去
+
   pub->publish(scan_msg);
 }
 
@@ -220,6 +220,12 @@ int main(int argc, char *argv[]) {
   int angle_compensate_multiple =
       1; // it stand of angle compensate at per 1 degree
   std::string scan_mode;
+
+  // angle filter
+  bool cut_angle = false;
+  size_t left_degree = 0;
+  size_t right_degree = 360;
+
   ros::NodeHandle nh;
   ros::Publisher scan_pub = nh.advertise<sensor_msgs::LaserScan>("scan", 1000);
   ros::NodeHandle nh_private("~");
@@ -402,10 +408,10 @@ int main(int argc, char *argv[]) {
             }
           }
 
-          publish_scan(&scan_pub, angle_compensate_nodes,
-                       angle_compensate_nodes_count, start_scan_time,
-                       scan_duration, inverted, angle_min, angle_max,
-                       max_distance, frame_id);
+          publish_scan(
+              &scan_pub, angle_compensate_nodes, angle_compensate_nodes_count,
+              start_scan_time, scan_duration, inverted, angle_min, angle_max,
+              max_distance, cut_angle, left_degree, right_degree, frame_id);
         } else {
           int start_node = 0, end_node = 0;
           int i = 0;
@@ -423,14 +429,16 @@ int main(int argc, char *argv[]) {
 
           publish_scan(&scan_pub, &nodes[start_node], end_node - start_node + 1,
                        start_scan_time, scan_duration, inverted, angle_min,
-                       angle_max, max_distance, frame_id);
+                       angle_max, max_distance, cut_angle, left_degree,
+                       right_degree, frame_id);
         }
       } else if (op_result == RESULT_OPERATION_FAIL) {
         // All the data is invalid, just publish them
         float angle_min = DEG2RAD(0.0f);
         float angle_max = DEG2RAD(359.0f);
         publish_scan(&scan_pub, nodes, count, start_scan_time, scan_duration,
-                     inverted, angle_min, angle_max, max_distance, frame_id);
+                     inverted, angle_min, angle_max, max_distance, cut_angle,
+                     left_degree, right_degree, frame_id);
       }
     }
 
