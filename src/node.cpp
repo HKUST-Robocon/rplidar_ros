@@ -52,8 +52,8 @@ void publish_scan(ros::Publisher *pub,
                   rplidar_response_measurement_node_hq_t *nodes,
                   size_t node_count, ros::Time start, double scan_time,
                   bool inverted, float angle_min, float angle_max,
-                  float max_distance, bool cut_angle, size_t left_degree,
-                  size_t right_degree, std::string frame_id) {
+                  float max_distance, bool cut_angle, int left_degree,
+                  int right_degree, std::string frame_id) {
   static int scan_count = 0;
   sensor_msgs::LaserScan scan_msg;
 
@@ -80,6 +80,8 @@ void publish_scan(ros::Publisher *pub,
   scan_msg.intensities.resize(node_count);
   scan_msg.ranges.resize(node_count);
   bool reverse_data = (!inverted && reversed) || (inverted && !reversed);
+  right_degree = (int)(node_count/360*right_degree);
+  left_degree = (int)(node_count/360*left_degree);
   if (!reverse_data) {
     for (size_t i = 0; i < node_count; i++) {
       float read_value = (float)nodes[i].dist_mm_q2 / 4.0f / 1000;
@@ -89,7 +91,7 @@ void publish_scan(ros::Publisher *pub,
         if ((left_degree < right_degree && i > left_degree &&
              i < right_degree) ||
             (left_degree > right_degree &&
-             (i < left_degree || i > right_degree))) {
+             (i > left_degree || i < right_degree))) {
           scan_msg.ranges[i] = read_value;
         } else if (left_degree == right_degree) {
           scan_msg.ranges[i] = read_value;
@@ -112,8 +114,8 @@ void publish_scan(ros::Publisher *pub,
         if ((left_degree < right_degree && node_count - 1 - i > left_degree &&
              node_count - 1 - i < right_degree) ||
             (left_degree > right_degree &&
-             (node_count - 1 - i < left_degree ||
-              node_count - 1 - i > right_degree))) {
+             (node_count - 1 - i > left_degree ||
+              node_count - 1 - i < right_degree))) {
           scan_msg.ranges[node_count - 1 - i] = read_value;
         } else if (left_degree == right_degree) {
           scan_msg.ranges[node_count - 1 - i] = read_value;
@@ -223,8 +225,8 @@ int main(int argc, char *argv[]) {
 
   // angle filter
   bool cut_angle = false;
-  size_t left_degree = 0;
-  size_t right_degree = 360;
+  int left_degree = 0;
+  int right_degree = 360;
 
   ros::NodeHandle nh;
   ros::Publisher scan_pub = nh.advertise<sensor_msgs::LaserScan>("scan", 1000);
@@ -244,8 +246,8 @@ int main(int argc, char *argv[]) {
   /**/
   nh_private.param<bool>("cut_angle", cut_angle, false);
   if (cut_angle) {
-    nh_private.param<int>("left_degrees", left_degrees, 180);
-    nh_private.param<int>("right_degrees", right_degrees, 180);
+    nh_private.param<int>("left_degree", left_degree, 180);
+    nh_private.param<int>("right_degree", right_degree, 180);
   }
   /**/
 
