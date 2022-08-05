@@ -52,8 +52,8 @@ void publish_scan(ros::Publisher *pub,
                   rplidar_response_measurement_node_hq_t *nodes,
                   size_t node_count, ros::Time start, double scan_time,
                   bool inverted, float angle_min, float angle_max,
-                  float max_distance, bool cut_angle, int left_degree,
-                  int right_degree, std::string frame_id) {
+                  float max_distance, bool cut_angle, double left_degree,
+                  double right_degree, std::string frame_id) {
   static int scan_count = 0;
   sensor_msgs::LaserScan scan_msg;
 
@@ -61,6 +61,7 @@ void publish_scan(ros::Publisher *pub,
   scan_msg.header.frame_id = frame_id;
   scan_count++;
 
+  // ROS_INFO("node_count: %d", node_count);
   bool reversed = (angle_max > angle_min);
   if (reversed) {
     scan_msg.angle_min = M_PI - angle_max;
@@ -80,8 +81,8 @@ void publish_scan(ros::Publisher *pub,
   scan_msg.intensities.resize(node_count);
   scan_msg.ranges.resize(node_count);
   bool reverse_data = (!inverted && reversed) || (inverted && !reversed);
-  right_degree = (int)(node_count/360*right_degree);
-  left_degree = (int)(node_count/360*left_degree);
+  right_degree = round(node_count/360*right_degree);
+  left_degree = round(node_count/360*left_degree);
   if (!reverse_data) {
     for (size_t i = 0; i < node_count; i++) {
       float read_value = (float)nodes[i].dist_mm_q2 / 4.0f / 1000;
@@ -225,8 +226,8 @@ int main(int argc, char *argv[]) {
 
   // angle filter
   bool cut_angle = false;
-  int left_degree = 0;
-  int right_degree = 360;
+  double left_degree = 0;
+  double right_degree = 360;
 
   ros::NodeHandle nh;
   ros::Publisher scan_pub = nh.advertise<sensor_msgs::LaserScan>("scan", 1000);
@@ -246,8 +247,8 @@ int main(int argc, char *argv[]) {
   /**/
   nh_private.param<bool>("cut_angle", cut_angle, false);
   if (cut_angle) {
-    nh_private.param<int>("left_degree", left_degree, 180);
-    nh_private.param<int>("right_degree", right_degree, 180);
+    nh_private.param<double>("left_degree", left_degree, 180.0);
+    nh_private.param<double>("right_degree", right_degree, 180.0);
   }
   /**/
 
